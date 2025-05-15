@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Batch Data Analysis - Dashboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;600&display=swap');
+  body {
+    margin: 0;
+    font-family: 'Poppins', sans-serif;
+    background: #f5f7fa;
+    color: #333;
+    min-height: 100vh;
+    padding: 20px;
+    box-sizing: border-box;
+  }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+  }
+  h1 {
+    font-weight: 600;
+    margin: 0;
+    color: #4a90e2;
+  }
+  button#logoutBtn {
+    background: #e74c3c;
+    border: none;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 25px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  main {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  .upload-section {
+    margin-bottom: 30px;
+  }
+  label {
+    font-weight: 600;
+    margin-bottom: 10px;
+    display: inline-block;
+  }
+  input[type="file"] {
+    margin-top: 8px;
+  }
+  .stats {
+    margin-top: 20px;
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+  }
+  .chart-container {
+    margin-top: 30px;
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+  }
+  canvas {
+    max-width: 100%;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Dashboard</h1>
+    <button id="logoutBtn">Logout</button>
+  </header>
+  <main>
+    <section class="upload-section">
+      <label for="fileInput">Upload Batch Data (CSV):</label><br />
+      <input type="file" id="fileInput" accept=".csv" />
+    </section>
+
+    <section class="stats" id="stats" style="display:none;">
+      <h2>Data Summary</h2>
+      <pre id="dataSummary" style="font-family: monospace;"></pre>
+    </section>
+
+    <section class="chart-container" id="chartSection" style="display:none;">
+      <h2>Visualization</h2>
+      <canvas id="dataChart" aria-label="Data Visualization Chart" role="img"></canvas>
+    </section>
+  </main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  // Check if user is logged in (simple sessionStorage check)
+  if(!sessionStorage.getItem('username')){
+    window.location.href = 'login.html';
+  }
+
+  document.getElementById('logoutBtn').addEventListener('click', () => {
+    sessionStorage.clear();
+    window.location.href = 'login.html';
+  });
+
+  const fileInput = document.getElementById('fileInput');
+  const dataSummary = document.getElementById('dataSummary');
+  const statsSection = document.getElementById('stats');
+  const chartSection = document.getElementById('chartSection');
+  const ctx = document.getElementById('dataChart').getContext('2d');
+  let chart;
+
+  fileInput.addEventListener('change', function(e){
+    const file = e.target.files[0];
+    if(!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(evt){
+      const text = evt.target.result;
+      try {
+        const parsedData = parseCSV(text);
+        if(parsedData.length === 0){
+          alert('CSV file is empty or invalid.');
+          return;
+        }
+        displaySummary(parsedData);
+        renderChart(parsedData);
+      } catch(err){
+        alert('Error parsing CSV: ' + err.message);
+      }
+    }
+    reader.readAsText(file);
+  });
+
+  function parseCSV(text) {
+    // Split into lines and remove empty lines
+    const lines = text.trim().split('\n').filter(l => l.trim() !== '');
+    if(lines.length < 2) return [];
+
+    // Assume first line is header
+    const headers = lines[0].split(',').map(h => h.trim());
+    // Only allow numeric data columns except first (key) column
+    const data = lines.slice(1).map(line => {
+      const parts = line.split(',');
+      let obj = {};
+      headers.forEach((header, i) => {
+        obj[header] = parts[i].trim();
+      });
+      return obj;
+    });
+
+    return { headers, data };
+  }
+
+  function displaySummary(parsedData) {
+    if(!parsedData.data || parsedData.data.length === 0) {
+      statsSection.style.display = 'none';
+      return;
+    }
+
+    const { headers, data } = parsedData;
+    // Find numeric columns (ignoring first column usually label)
+    const numericHeaders = headers.slice(1).filter(h => data.every(row => !isNaN(parseFloat(row[h]))));
+
+    let summaryText = '';
+    numericHeaders.forEach(col => {
+      const vals = data.map(row => parseFloat(row[col]));
+      const count = vals.length;
+      const sum = vals.reduce((a,b) => a+b,0);
+      const avg = sum / count;
+      const min = Math.min(...vals);
+      const max = Math.max(...vals);
+      summaryText += `${col}:\n  count: ${count}\n  average: ${avg.toFixed(2)}\n  min: ${min}\n  max: ${max}\n\n`;
+    });
+
+    dataSummary.textContent = summaryText || 'No numeric data found for summary.';
+    statsSection.style.display = 'block';
+  }
+
+  function renderChart(parsedData) {
+    if(!parsedData.data || parsedData.data.length === 0) {
+      chartSection.style.display = 'none';
+      return;
+    }
+
+    const { headers, data } = parsedData;
+    // Use first column as labels, numeric columns for datasets
+    const labels = data.map(row => row[headers[0]]);
+    const numericHeaders = headers.slice(1).filter(h => data.every(row => !isNaN(parseFloat(row[h]))));
+
+    if(numericHeaders.length === 0){
+      chartSection.style.display = 'none';
+      return alert('No numeric columns found for visualization.');
+    }
+
+    const datasets = numericHeaders.map((col, idx) => {
+      const colors = ['#4a90e2', '#50e3c2', '#f5a623', '#d0021b'];
+      return {
+        label: col,
+        data: data.map(row => parseFloat(row[col])),
+        borderColor: colors[idx % colors.length],
+        backgroundColor: colors[idx % colors.length],
+        fill: false,
+        tension: 0.1,
+        borderWidth: 2,
+        pointRadius: 3,
+      };
+    });
+
+    if(chart) {
+      chart.destroy();
+    }
+
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: datasets,
+      },
+      options: {
+        responsive: true,
+        interaction: {
+          mode: 'nearest',
+          axis: 'x',
+          intersect: false,
+        },
+        plugins: {
+          legend: {
+            position: 'top',
+          },
+          title: {
+            display: true,
+            text: 'Batch Data Visualization',
+            font: { size: 18, weight: '600' }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { stepSize: undefined },
+          }
+        }
+      }
+    });
+
+    chartSection.style.display = 'block';
+  }
+</script>
+</body>
+</html>
